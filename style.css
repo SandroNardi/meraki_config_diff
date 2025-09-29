@@ -1,0 +1,408 @@
+/*
+ * CSS Style Guide for PyWebIO Projects
+ *
+ * This file provides a consistent look and feel for PyWebIO applications.
+ * It's designed to be reusable across multiple projects.
+ *
+ * Sections:
+ * 1. CSS Variables: Define common colors and values for easy customization.
+ * 2. Base Styles: General styling for body, fonts, etc.
+ * 3. Layout Components: Styles for the overall page structure (header, nav, main content).
+ * 4. Button Base Styles: Generic button styling.
+ * 5. Button Variants: Specific styles for primary, warning, etc., buttons.
+ * 6. Nav Button Specifics: Overrides for buttons within the nav.
+ * 7. Input/Output Scopes: Styles for PyWebIO's default input/output containers.
+ * 8. Utility Classes: Small, single-purpose classes.
+ * 9. PyWebIO Overrides/Specifics: Adjustments for PyWebIO's generated elements.
+ */
+
+/* 1. CSS Variables */
+:root {
+    /* Brand Colors */
+    --cisco-blue: #1D69CC;
+    --cisco-blue-dark: #144a90; /* Darker shade for hover/active */
+    --cisco-blue-light: #e0eaff; /* Lighter shade for hover/active */
+    --cisco-text-dark: #333333;
+
+    /* Neutral Colors */
+    --white: #FFFFFF;
+    --light-grey: #F7F7F7;
+    --medium-grey: #e0e0e0;
+    --dark-grey: #656C75;
+    --darker-grey: #4a4a4a; /* For dark button background and secondary hover */
+
+    /* Top Bar Gradient Colors */
+    --top-bar-bg-start: #143052;
+    --top-bar-bg-end: #07172B;
+
+    /* Accent Gradient Colors (for top thin bar) */
+    --accent-gradient-1: #007bff;
+    --accent-gradient-2: #6610f2;
+    --accent-gradient-3: #e83e8c;
+    --accent-gradient-4: #fd7e14;
+
+    /* Semantic Colors (newly added or enhanced) */
+    --cisco-success: #28a745; /* Green */
+    --cisco-success-dark: #1e7e34;
+    --cisco-success-light: #d4edda;
+
+    --cisco-danger: #dc3545; /* Red */
+    --cisco-danger-dark: #c82333;
+    --cisco-danger-light: #f8d7da;
+
+    --cisco-info: #17a2b8; /* Cyan/Teal */
+    --cisco-info-dark: #117a8b;
+    --cisco-info-light: #d6ecf0;
+
+    --cisco-warning-solid: #ffc107; /* Yellow/Orange for solid warning */
+    --cisco-warning-solid-dark: #e0a800;
+    --cisco-warning-solid-light: #fff3cd;
+
+    /* Font */
+    --font-family-sans: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* 2. Base Styles */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-family-sans);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden; /* Prevent main scrollbars */
+    color: var(--cisco-text-dark);
+    background-color: var(--light-grey); /* Default background for the whole page */
+    overflow-y: auto; /* Enable vertical scrolling */
+}
+
+/* 3. Layout Components */
+.top-gradient-bar {
+    height: 4px;
+    background-image: linear-gradient(to right, var(--accent-gradient-1), var(--accent-gradient-2), var(--accent-gradient-3), var(--accent-gradient-4));
+    flex-shrink: 0; /* Prevent from shrinking */
+}
+
+.top-bar {
+    height: 56px;
+    background: linear-gradient(0.25turn, var(--top-bar-bg-start), var(--top-bar-bg-end));
+    flex-shrink: 0;
+    margin-bottom: 10px; /* Space below the header */
+    display: flex;
+    align-items: center;
+    color: var(--white);
+    font-weight: bold;
+    padding-left: 30px;
+    font-size: 1.2em;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow */
+}
+
+.main-layout-container {
+    display: flex;
+    flex: 1; /* Takes remaining vertical space */
+    overflow: hidden; /* Contains internal scrolling */
+}
+
+#pywebio-scope-nav {
+    width: 250px; /* Fixed width for nav */
+    flex-shrink: 0;
+    padding: 10px;
+    background-color: var(--light-grey);
+    overflow-y: auto; /* Allow nav to scroll */
+    border-right: 1px solid var(--medium-grey);
+    box-shadow: 2px 0 5px rgba(0,0,0,0.05); /* Subtle shadow */
+    width: 100%;
+}
+
+#pywebio-scope-nav h3 {
+    color: var(--dark-grey);
+    margin-top: 0;
+    margin-bottom: 15px;
+    padding: 0 10px;
+}
+
+/* MODIFIED: To display buttons horizontally, filling the space */
+.nav-buttons-group {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap; /* Allow buttons to wrap to the next line if space is limited */
+    gap: 8px; /* Space between nav buttons */
+    justify-content: space-between; /* Distribute space evenly between items */
+    align-items: stretch; /* Make items fill the height of the row */
+}
+
+#pywebio-scope-app {
+    flex-grow: 1; /* Takes all available horizontal space */
+    padding: 20px;
+    /* MODIFIED: Changed background-color, added min-height, border, and border-radius */
+    background-color: var(--light-grey);
+    min-height: 100px;
+    border: 1px solid var(--medium-grey); /* Light rounded border */
+    border-radius: 8px; /* Matching other rounded elements */
+    overflow-y: auto; /* Allow main content to scroll */
+}
+
+/* 4. Button Base Styles */
+.btn {
+    padding: 5px 10px; /* Reduced padding as requested */
+    cursor: pointer;
+    border-radius: 5px;
+    font-weight: bold;
+    text-align: center;
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, opacity 0.3s ease;
+    display: inline-flex; /* For better alignment of text/icons */
+    align-items: center;
+    justify-content: center;
+    gap: 5px; /* Space for icon if any */
+    text-decoration: none; /* Remove underline for anchor-like buttons */
+    white-space: nowrap; /* Prevent text wrapping */
+}
+
+.btn:focus {
+    outline: 2px solid var(--cisco-blue);
+    outline-offset: 2px;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    filter: grayscale(50%); /* Visually indicate disabled state */
+}
+
+/* 5. Button Variants */
+
+/* Primary Button */
+.btn-primary {
+    background-color: var(--cisco-blue);
+    color: var(--white);
+    border: 1px solid var(--cisco-blue);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--cisco-blue-dark);
+    border-color: var(--cisco-blue-dark);
+}
+
+.btn-primary:active:not(:disabled) {
+    background-color: #0d305a; /* Even darker */
+    border-color: #0d305a;
+}
+
+/* Secondary Button (newly added) */
+.btn-secondary {
+    background-color: var(--dark-grey);
+    color: var(--white);
+    border: 1px solid var(--dark-grey);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--darker-grey);
+    border-color: var(--darker-grey);
+}
+
+.btn-secondary:active:not(:disabled) {
+    background-color: #333333; /* Even darker */
+    border-color: #333333;
+}
+
+/* Success Button (newly added) */
+.btn-success {
+    background-color: var(--cisco-success);
+    color: var(--white);
+    border: 1px solid var(--cisco-success);
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: var(--cisco-success-dark);
+    border-color: var(--cisco-success-dark);
+}
+
+.btn-success:active:not(:disabled) {
+    background-color: #155d28; /* Even darker */
+    border-color: #155d28;
+}
+
+/* Danger Button (newly added) */
+.btn-danger {
+    background-color: var(--cisco-danger);
+    color: var(--white);
+    border: 1px solid var(--cisco-danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+    background-color: var(--cisco-danger-dark);
+    border-color: var(--cisco-danger-dark);
+}
+
+.btn-danger:active:not(:disabled) {
+    background-color: #a71d2a; /* Even darker */
+    border-color: #a71d2a;
+}
+
+/* Warning Button (existing outline style) */
+.btn-warning {
+    background-color: var(--white);
+    color: var(--cisco-blue);
+    border: 1px solid var(--cisco-blue);
+}
+
+.btn-warning:hover:not(:disabled) {
+    background-color: var(--cisco-blue-light);
+    color: var(--cisco-blue);
+    border-color: var(--cisco-blue);
+}
+
+.btn-warning:active:not(:disabled) {
+    background-color: #cce0ff; /* Slightly darker light blue */
+    color: var(--cisco-blue);
+    border-color: var(--cisco-blue);
+}
+
+/* Solid Warning Button (newly added, for typical yellow warning) */
+.btn-warning-solid {
+    background-color: var(--cisco-warning-solid);
+    color: var(--cisco-text-dark); /* Dark text for contrast */
+    border: 1px solid var(--cisco-warning-solid);
+}
+
+.btn-warning-solid:hover:not(:disabled) {
+    background-color: var(--cisco-warning-solid-dark);
+    border-color: var(--cisco-warning-solid-dark);
+}
+
+.btn-warning-solid:active:not(:disabled) {
+    background-color: #cc9a00; /* Even darker */
+    border-color: #cc9a00;
+}
+
+/* Info Button (newly added) */
+.btn-info {
+    background-color: var(--cisco-info);
+    color: var(--white);
+    border: 1px solid var(--cisco-info);
+}
+
+.btn-info:hover:not(:disabled) {
+    background-color: var(--cisco-info-dark);
+    border-color: var(--cisco-info-dark);
+}
+
+.btn-info:active:not(:disabled) {
+    background-color: #0f6674; /* Even darker */
+    border-color: #0f6674;
+}
+
+/* Light Button (newly added) */
+.btn-light {
+    background-color: var(--light-grey);
+    color: var(--cisco-text-dark);
+    border: 1px solid var(--medium-grey); /* Slightly darker border for definition */
+}
+
+.btn-light:hover:not(:disabled) {
+    background-color: var(--medium-grey);
+    border-color: var(--medium-grey);
+}
+
+.btn-light:active:not(:disabled) {
+    background-color: #c9c9c9; /* Even darker */
+    border-color: #c9c9c9;
+}
+
+/* Dark Button (newly added) */
+.btn-dark {
+    background-color: var(--darker-grey);
+    color: var(--white);
+    border: 1px solid var(--darker-grey);
+}
+
+.btn-dark:hover:not(:disabled) {
+    background-color: var(--cisco-text-dark); /* Use cisco-text-dark for hover */
+    border-color: var(--cisco-text-dark);
+}
+
+.btn-dark:active:not(:disabled) {
+    background-color: #1a1a1a; /* Even darker */
+    border-color: #1a1a1a;
+}
+
+/* 6. Nav Button Specifics */
+/* These styles remain unchanged as requested */
+#pywebio-scope-nav button {
+    flex: 1; /* Allow buttons to grow and shrink, filling available space */
+    min-width: 80px; /* Minimum width for buttons to prevent them from becoming too small */
+    text-align: center;
+    background-color: var(--light-grey);
+    color: var(--dark-grey);
+    border: 1px solid var(--dark-grey);
+    box-shadow: none; /* Remove default button shadow if any */
+    /* MODIFIED: Applied new padding */
+    padding: 5px 10px;
+}
+
+#pywebio-scope-nav button.active { /* For active nav item */
+    background-color: var(--cisco-blue);
+    color: var(--white);
+    border-color: var(--cisco-blue);
+}
+
+#pywebio-scope-nav button:hover:not(:disabled):not(.active) {
+    background-color: var(--white);
+    border: 1px solid var(--cisco-blue);
+    color: var(--cisco-blue);
+}
+
+#pywebio-scope-nav button:active:not(:disabled):not(.active) {
+    background-color: var(--cisco-blue-light);
+    border: 1px solid var(--cisco-blue);
+    color: var(--cisco-blue);
+}
+
+/* 7. Input/Output Scopes */
+#input-container, #output-container {
+    max-width: 100%; /* Adjust to fit parent, not fixed 2000px */
+    margin: 0 0 15px 0; /* Consistent margin below */
+    padding: 15px;
+    background-color: var(--light-grey);
+    border-radius: 8px; /* Slightly more rounded */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+
+#output-container {
+    margin-bottom: 0; /* No margin at the very bottom */
+}
+
+
+/* 8. Utility Classes */
+.bg-info { /* Original class, keeping it */
+    background-color: var(--cisco-blue) !important;
+    color: var(--white) !important;
+}
+
+/* 9. PyWebIO Overrides/Specifics */
+.modal-lg, .modal.xl {
+    max-width: 80%;
+}
+
+.modal-dialog .markdown-body table {
+    display: table; /* Ensure tables display correctly within modals */
+    width: 100%; /* Make tables fill their container */
+    border-collapse: collapse;
+    margin-bottom: 1em;
+}
+.modal-dialog .markdown-body table th,
+.modal-dialog .markdown-body table td {
+    border: 1px solid var(--medium-grey);
+    padding: 8px;
+    text-align: left;
+}
+.modal-dialog .markdown-body table th {
+    background-color: var(--light-grey);
+    font-weight: bold;
+}
+
+/* Adjustments for PyWebio's default input/output elements */
+.pywebio-container {
+    padding: 0 !important; /* Reset default pywebio container padding if any */
+}
