@@ -1,0 +1,4 @@
+# Ignore the __pycache__ directory
+__pycache__/
+saved_configs/
+app.log
