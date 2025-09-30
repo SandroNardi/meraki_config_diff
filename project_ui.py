@@ -1,4 +1,3 @@
-# type: ignore
 # project_ui.py
 """
 This module handles the Graphical User Interface (GUI) for the application using PyWebIO.
@@ -28,7 +27,6 @@ from pyecharts import options as opts
 from meraki_tools.my_logging import get_logger
 from project_logic import ProjectLogic
 from meraki_tools.meraki_api_utils import MerakiAPIWrapper
-import use_cases as uc
 # --- Logger Setup ---
 logger = logging.getLogger()
 
@@ -39,18 +37,6 @@ class ProjectUI:
         self._api_utils = api_utils
         self.logger = get_logger()
         self.app_scope_name = app_scope_name
-        self.sidenav_scope = "sidenav"
-        self.progressbar_scope = "progressbar"
-
-        self.USE_CASE_KEYS = {
-            "organization_level": "organization_level",
-            "network_level": "network_level",
-            "device_level": "device_level", # Added device_level for completeness
-            "store_prefix": "store_",
-            "compare_prefix": "compare_",
-            "display_name": "display_name",
-            "name": "name",
-        } # Use keys from ProjectLogic
         self.logger.info("ProjectUI initialized with ProjectLogic instance.")
 
     # --- Dropdown Data Preparation Functions ---
@@ -120,7 +106,7 @@ class ProjectUI:
             checkbox_options = []
             for operation in level_operations:
                 label = f"Save {operation['display_name']}"
-                value = f"{self.USE_CASE_KEYS['store_prefix']}{operation['name']}"
+                value = f"{self._project_logic.USE_CASE_KEYS['store_prefix']}{operation['name']}"
                 checkbox_options.append({"label": label, "value": value})
 
             input_elements = []
@@ -128,9 +114,9 @@ class ProjectUI:
             if select_label and select_name and select_options_func:
                 input_elements.append(
                     select(
-                        label=select_label,
-                        value=select_name,
-                        options=select_options_func(),
+                        select_label,
+                        name=select_name,
+                        options=select_options_func(), # Call the function passed as argument
                     )
                 )
 
@@ -179,7 +165,7 @@ class ProjectUI:
 
             all_successful = True
             for operation in level_operations:
-                action_key = f"{self.USE_CASE_KEYS['store_prefix']}{operation['name']}"
+                action_key = f"{self._project_logic.USE_CASE_KEYS['store_prefix']}{operation['name']}"
                 if action_key in selected_actions:
                     operation_kwargs = {}
                     if identifier:
@@ -226,15 +212,20 @@ class ProjectUI:
         It presents a dynamic list of operations (e.g., saving SSIDs) and a network selector.
         """
         self.save_reference_config_level(
-            scope_key=self.USE_CASE_KEYS.get("network_level"),
+            scope_key=self._project_logic.USE_CASE_KEYS.get("network_level"),
             input_group_title="Network-Level Configuration",
             select_label="Select a Network",
             select_name="network_id",
-            select_options_func=self._api_utils.list_networks,
+            select_options_func=self.list_networks_for_dropdown,
             checkbox_name="network_actions",
             checkbox_label="Actions for Selected Network",
             entity_type_name="network"
         )
+    # Inside the ProjectUI class
+    def list_networks_for_dropdown(self) -> List[Dict[str, Any]]:
+        """Fetches networks and formats them for a dropdown menu."""
+        networks = self._api_utils.list_networks(use_cache=True) # Assuming list_networks takes use_cache
+        return [{"label": f"[{net['id']}] - {net['name']}", "value": net["id"]} for net in networks]
 
     def save_reference_config_device_level(self):
         """
@@ -242,7 +233,7 @@ class ProjectUI:
         It presents a dynamic list of operations and a device selector.
         """
         self.save_reference_config_level(
-            scope_key=self.USE_CASE_KEYS["device_level"],
+            scope_key=self._project_logic.USE_CASE_KEYS["device_level"],
             input_group_title="Device-Level Configuration",
             select_label="Select a Device",
             select_name="device_id",
@@ -258,7 +249,7 @@ class ProjectUI:
         It presents a dynamic list of operations (e.g., saving admins) based on `core.USE_CASES`.
         """
         self.save_reference_config_level(
-            scope_key=self.USE_CASE_KEYS["organization_level"],
+            scope_key=self._project_logic.USE_CASE_KEYS["organization_level"],
             input_group_title="Organization-Level Configuration",
             checkbox_name="org_actions",
             checkbox_label="Actions for Organization",
@@ -279,7 +270,7 @@ class ProjectUI:
             store_onclicks = []
 
             for use_case_key, use_case in self._project_logic.get_use_cases_items():
-                label = use_case[self.USE_CASE_KEYS["display_name"]]
+                label = use_case[self._project_logic.USE_CASE_KEYS["display_name"]]
                 store_buttons.append({"label": label, "value": use_case_key})
                 func_name = f"save_reference_config_{use_case_key}"
                 func = getattr(self, func_name, None)
@@ -293,8 +284,8 @@ class ProjectUI:
             compare_buttons = []
             compare_onclicks = []
             for use_case_key, use_case in self._project_logic.get_use_cases_items():
-                label = f"{use_case[self.USE_CASE_KEYS['display_name']]}"
-                compare_buttons.append({"label": label, "value": f"{self.USE_CASE_KEYS['compare_prefix']}{use_case_key}"})
+                label = f"{use_case[self._project_logic.USE_CASE_KEYS['display_name']]}"
+                compare_buttons.append({"label": label, "value": f"{self._project_logic.USE_CASE_KEYS['compare_prefix']}{use_case_key}"})
                 func_name = f"compare_{use_case_key}"
                 func = getattr(self, func_name, None)
                 compare_onclicks.append(func if func else (lambda: None))
@@ -309,7 +300,6 @@ class ProjectUI:
         Handles the common logic for performing configuration comparisons (organization/network/device level).
         It prompts the user to select files for comparison and displays a progress bar.
         """
-        clear(self.sidenav_scope)
 
         use_case_inputs = []
         operations = self._project_logic.get_operations(scope)
@@ -328,8 +318,8 @@ class ProjectUI:
             use_case_inputs.append(
                 select(
                     f"Select operation for {operation_display_name}",
-                    options=options,
-                    name=operation_name,
+                    lablel=options,
+                    value=operation_name,
                 )
             )
 
@@ -360,8 +350,7 @@ class ProjectUI:
         comparison_method = "deepdiff" if perform_deep_comparison else "flat"
 
         results = {}
-        clear(self.sidenav_scope)
-        with use_scope(self.progressbar_scope):
+        with use_scope(self.app_scope_name, clear=True):
             put_progressbar("bar")
 
             total_operations = len(operations)
@@ -373,11 +362,11 @@ class ProjectUI:
                     self.logger.warning(f"No baseline file selected or found for {operation['display_name']}.")
                 else:
                     kwargs = {"filename": selected_file}
-                    if scope == self.USE_CASE_KEYS["network_level"]:
+                    if scope == self._project_logic.USE_CASE_KEYS["network_level"]:
                         selected_network_tags = operation_selections.get("selected_network_tags", [])
                         if selected_network_tags:
                             kwargs["network_tags"] = selected_network_tags
-                    elif scope == self.USE_CASE_KEYS["device_level"]:
+                    elif scope == self._project_logic.USE_CASE_KEYS["device_level"]:
                         selected_device_tags = operation_selections.get("selected_device_tags", [])
                         selected_network_tags_for_devices = operation_selections.get("selected_network_tags", [])
                         selected_device_models=operation_selections.get("selected_device_models",[])
@@ -406,8 +395,8 @@ class ProjectUI:
                         toast(f"Error comparing {operation['name']}: {op_results['error']}", color="error", duration=5)
 
                 set_progressbar("bar", idx / total_operations)
-        clear(self.progressbar_scope)
-        self.display_comparison_results(results, operation_selections, scope=scope)
+        with use_scope(self.app_scope_name, clear=True):
+            self.display_comparison_results(results, operation_selections, scope=scope)
 
 
     def compare_network_level(self):
@@ -431,7 +420,7 @@ class ProjectUI:
                         inline=True
                     )
                 additional_inputs = [tag_checkboxes] if tag_checkboxes else []
-            self.perform_comparison(self.USE_CASE_KEYS["network_level"], additional_inputs)
+            self.perform_comparison(self._project_logic.USE_CASE_KEYS["network_level"], additional_inputs)
 
 
     def compare_organization_level(self):
@@ -439,7 +428,7 @@ class ProjectUI:
         Initiates an organization-level configuration comparison.
         No additional filters (like tags) are applied at this level.
         """
-        self.perform_comparison(self.USE_CASE_KEYS["organization_level"])
+        self.perform_comparison(self._project_logic.USE_CASE_KEYS["organization_level"])
 
 
     def compare_device_level(self):
@@ -447,69 +436,69 @@ class ProjectUI:
         Initiates a device-level configuration comparison, including options
         to filter devices by tags, device models, network tags, and product types.
         """
-        clear(self.sidenav_scope)
-        with put_loading():
-            devices = self._project_logic.get_devices(True, True)
-            networks =self._project_logic.get_networks(True,True)
+        with use_scope(self.app_scope_name, clear=True):
+            with put_loading():
+                devices = self._project_logic.get_devices(True, True)
+                networks =self._project_logic.get_networks(True,True)
 
-            unique_device_tags = sorted(list(set(tag for device in devices for tag in device.get("tags", []))))
-            unique_device_models = sorted(list(set(device.get("model", "Unknown") for device in devices)))
-            unique_network_tags = sorted(list(set(tag for network in networks for tag in network.get("tags", []))))
-            unique_product_types = sorted(list(set(device.get("productType", "Unknown") for device in devices)))
+                unique_device_tags = sorted(list(set(tag for device in devices for tag in device.get("tags", []))))
+                unique_device_models = sorted(list(set(device.get("model", "Unknown") for device in devices)))
+                unique_network_tags = sorted(list(set(tag for network in networks for tag in network.get("tags", []))))
+                unique_product_types = sorted(list(set(device.get("productType", "Unknown") for device in devices)))
 
-            network_tag_checkboxes = None
-            if unique_network_tags:
-                network_tag_checkboxes = checkbox(
-                    "Select network tags",
-                    options=[{"label": tag, "value": tag} for tag in unique_network_tags],
-                    name="selected_network_tags",
-                    inline=True,
-                )
-            else:
-                self.logger.warning("No network tags are available for selection.")
+                network_tag_checkboxes = None
+                if unique_network_tags:
+                    network_tag_checkboxes = checkbox(
+                        "Select network tags",
+                        options=[{"label": tag, "value": tag} for tag in unique_network_tags],
+                        name="selected_network_tags",
+                        inline=True,
+                    )
+                else:
+                    self.logger.warning("No network tags are available for selection.")
 
-            device_tag_checkboxes = None
-            if unique_device_tags:
-                device_tag_checkboxes = checkbox(
-                    "Select device tags",
-                    options=[{"label": tag, "value": tag} for tag in unique_device_tags],
-                    name="selected_device_tags",
-                    inline=True,
-                )
-            else:
-                self.logger.warning("No device tags are available for selection.")
+                device_tag_checkboxes = None
+                if unique_device_tags:
+                    device_tag_checkboxes = checkbox(
+                        "Select device tags",
+                        options=[{"label": tag, "value": tag} for tag in unique_device_tags],
+                        name="selected_device_tags",
+                        inline=True,
+                    )
+                else:
+                    self.logger.warning("No device tags are available for selection.")
 
-            product_type_checkboxes = None
-            if unique_product_types:
-                product_type_checkboxes = checkbox(
-                    "Select product types",
-                    options=[{"label": pt, "value": pt} for pt in unique_product_types],
-                    name="selected_product_types",
-                    inline=True,
-                )
-            else:
-                self.logger.warning("No product types are available for selection.")
+                product_type_checkboxes = None
+                if unique_product_types:
+                    product_type_checkboxes = checkbox(
+                        "Select product types",
+                        options=[{"label": pt, "value": pt} for pt in unique_product_types],
+                        name="selected_product_types",
+                        inline=True,
+                    )
+                else:
+                    self.logger.warning("No product types are available for selection.")
 
-            device_model_checkboxes = None
-            if unique_device_models:
-                device_model_checkboxes = checkbox(
-                    "Select device models",
-                    options=[{"label": model, "value": model} for model in unique_device_models],
-                    name="selected_device_models",
-                    inline=True,
-                )
-            else:
-                self.logger.warning("No device models are available for selection.")
+                device_model_checkboxes = None
+                if unique_device_models:
+                    device_model_checkboxes = checkbox(
+                        "Select device models",
+                        options=[{"label": model, "value": model} for model in unique_device_models],
+                        name="selected_device_models",
+                        inline=True,
+                    )
+                else:
+                    self.logger.warning("No device models are available for selection.")
 
-            additional_inputs = [
-                cb for cb in [
-                    network_tag_checkboxes,
-                    product_type_checkboxes,
-                    device_tag_checkboxes,
-                    device_model_checkboxes,
-                ] if cb is not None
-            ]
-        self.perform_comparison(self.USE_CASE_KEYS["device_level"], additional_inputs)
+                additional_inputs = [
+                    cb for cb in [
+                        network_tag_checkboxes,
+                        product_type_checkboxes,
+                        device_tag_checkboxes,
+                        device_model_checkboxes,
+                    ] if cb is not None
+                ]
+            self.perform_comparison(self._project_logic.USE_CASE_KEYS["device_level"], additional_inputs)
 
 
     def format_value_for_html(self, value):
@@ -778,11 +767,9 @@ class ProjectUI:
         Initializes the PyWebIO application by clearing scopes, displaying the header,
         prompting for organization selection, and then launching the main navigation.
         """
-        clear(self.app_scope_name)
-        clear(self.sidenav_scope)
-        clear(self.progressbar_scope)
+        
 
-        with use_scope(self.app_scope_name):
+        with use_scope(self.app_scope_name, clear=True):
             self.header("My app")
             self.select_organization()
         org_id, _ = self._project_logic.get_organization()
