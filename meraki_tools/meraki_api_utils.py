@@ -446,10 +446,9 @@ class MerakiAPIWrapper:
                 {
                     "id": net.get("id"),
                     "name": net.get("name"),
-                    "type": net.get("type"),
                     "time zone": net.get("timeZone"),
-                    "tags": ", ".join(net.get("tags", [])),
-                    "productTypes": ", ".join(net.get("productTypes", [])),
+                    "tags": net.get("tags", []),
+                    "productTypes": net.get("productTypes", []),
                 }
                 for net in filtered_networks
             ]

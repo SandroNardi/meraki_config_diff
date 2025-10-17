@@ -300,54 +300,47 @@ class ProjectUI:
         Handles the common logic for performing configuration comparisons (organization/network/device level).
         It prompts the user to select files for comparison and displays a progress bar.
         """
+        with use_scope(self.app_scope_name, clear=True):
+            use_case_inputs = []
+            operations = self._project_logic.get_operations(scope)
 
-        use_case_inputs = []
-        operations = self._project_logic.get_operations(scope)
+            for operation in operations:
+                operation_name = operation["name"]
+                operation_display_name = operation["display_name"]
 
-        for operation in operations:
-            operation_name = operation["name"]
-            operation_display_name = operation["display_name"]
-
-            relevant_json_files = self._project_logic.list_json_files(
-                self._project_logic.get_scope_folder_name(scope), operation_name
-            )
-            options = [""] + relevant_json_files if relevant_json_files else ["No JSON files found"]
-            if not relevant_json_files:
-                 self.logger.warning(f"No JSON files found for {operation_display_name} in {scope}.")
-
-            use_case_inputs.append(
-                select(
-                    f"Select operation for {operation_display_name}",
-                    lablel=options,
-                    value=operation_name,
+                relevant_json_files = self._project_logic.list_json_files(
+                    self._project_logic.get_scope_folder_name(scope), operation_name
                 )
+                options = [""] + relevant_json_files if relevant_json_files else ["No JSON files found"]
+                if not relevant_json_files:
+                    self.logger.warning(f"No JSON files found for {operation_display_name} in {scope}.")
+
+                use_case_inputs.append(
+                    select(
+                        f"Select operation for {operation_display_name}",
+                        options=options,
+                        name=operation_name,
+                    )
+                )
+
+            input_group_elements = []
+            if additional_input_elements:
+                input_group_elements.extend(additional_input_elements)
+            input_group_elements.extend(use_case_inputs)
+            
+            input_group_elements.append(actions(name="submit", buttons=["Submit", "Cancel"]))
+
+            operation_selections = input_group(
+                "Choose files for each use case",
+                input_group_elements,
             )
 
-        input_group_elements = []
-        if additional_input_elements:
-            input_group_elements.extend(additional_input_elements)
-        input_group_elements.extend(use_case_inputs)
-        input_group_elements.append(
-            checkbox(
-                "Comparison Options",
-                options=[{"label": "Perform Deep Comparison (using DeepDiff)", "value": "deep"}],
-                name="deep_comparison_checkbox",
-            )
-        )
-        input_group_elements.append(actions(name="submit", buttons=["Submit", "Cancel"]))
+            if operation_selections["submit"] == "Cancel":
+                clear(self.app_scope_name)
+                self.app_main_menu()
+                return
 
-        operation_selections = input_group(
-            "Choose files for each use case",
-            input_group_elements,
-        )
-
-        if operation_selections["submit"] == "Cancel":
-            clear(self.app_scope_name)
-            self.app_main_menu()
-            return
-
-        perform_deep_comparison = "deep" in operation_selections.get("deep_comparison_checkbox", [])
-        comparison_method = "deepdiff" if perform_deep_comparison else "flat"
+            comparison_method = "deepdiff" 
 
         results = {}
         with use_scope(self.app_scope_name, clear=True):
@@ -407,8 +400,9 @@ class ProjectUI:
         with use_scope(self.app_scope_name, clear=True):
             with put_loading():
                 networks = self._api_utils.list_networks(use_cache=True)
+                print(networks)
                 unique_tags = sorted(list(set(tag for network in networks for tag in network.get("tags", []))))
-
+                print (unique_tags)
                 tag_checkboxes = None
                 if not unique_tags:
                     self.logger.warning("No network tags are available for selection.")

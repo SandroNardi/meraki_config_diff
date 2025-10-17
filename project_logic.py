@@ -8,52 +8,60 @@ to define available operations and `compare_functions.py` for comparison logic.
 """
 
 # --- Standard Library Imports ---
-import os           # For interacting with the operating system, e.g., file paths, environment variables.
 import json         # For working with JSON data.
+import os           # For interacting with the operating system, e.g., file paths, environment variables.
+import re           # For regular expressions, used in path parsing.
+from collections import OrderedDict # For maintaining order in dictionaries, used in flattening.
 from datetime import datetime, timedelta, timezone # For generating timestamps for filenames and graph logic.
-from meraki_tools.my_logging import get_logger
-from meraki_tools.meraki_api_utils import MerakiAPIWrapper
-from typing import Optional, List, Dict, Any, Self, Tuple,Callable
-from collections import OrderedDict
-from deepdiff import DeepDiff # The main library for deep comparison of data structures.
-import re     
+from typing import Any, Callable, Dict, List, Optional, Self, Tuple # For type hinting.
 
 # --- Third-Party Imports ---
 import meraki       # The Meraki Dashboard API library.
+from deepdiff import DeepDiff # The main library for deep comparison of data structures.
 
 # --- Local Application Imports ---
 # Assuming these files exist in the same directory or are importable
+from meraki_tools.meraki_api_utils import MerakiAPIWrapper
+from meraki_tools.my_logging import get_logger
 
-
+# --- Module-Level Constants ---
+FILES_DIRECTORY = "saved_configs" # Root directory for storing all saved configuration files.
+# This 'folders' variable was found at the end of the original file, outside the class.
+# If it's intended to be a module-level constant, it belongs here.
+# If it's meant to be an instance variable, it should be defined in __init__.
+# For now, assuming it's a module-level constant if it's used globally.
+# If not used, it should be removed.
+FOLDERS_MAPPING = {"network": "network", "organization": "organization", "device": "device"}
 
 # --- Logger Setup ---
 logger = get_logger()
 
 
-
-
 class ProjectLogic:
-    def __init__(self, api_utils:MerakiAPIWrapper):
-        # Initialize instance variables that were global in core_operations.py
+    def __init__(self, api_utils: MerakiAPIWrapper):
+        # Initialize instance variables
         self._api_utils = api_utils
-        self.FILES_DIRECTORY =  "saved_configs"# Root directory for storing all saved configuration files.
-        self.logger = get_logger()
-        # Initialize Meraki Dashboard API
+        self.logger = logger # Use the module-level logger
+        self.files_directory = FILES_DIRECTORY # Use the module-level constant for the default
+
+        # Comparison methods registry
         self._COMPARISON_METHODS = {
             "deepdiff": self._handle_deepdiff_comparison,
-            "flat": self._handle_flat_comparison,
             # Future methods can be added here
         }
-        # Get USE_CASE_KEYS and USE_CASES from the uc module
+
+        # Use case keys for consistent referencing
         self.USE_CASE_KEYS = {
             "organization_level": "organization_level",
             "network_level": "network_level",
-            "device_level": "device_level", # Added device_level for completeness
+            "device_level": "device_level",
             "store_prefix": "store_",
             "compare_prefix": "compare_",
             "display_name": "display_name",
             "name": "name",
-        } # Use keys from ProjectLogic
+        }
+
+        # Define all available use cases and their operations
         self.USE_CASES = {
             "organization_level": {
                 "folder": "Organization_config", # Base folder name for organization-level configs.
@@ -122,7 +130,7 @@ class ProjectLogic:
 
         logger.info("ProjectLogic initialized with Meraki Dashboard API and configuration.")
 
-    
+
     def core_data_operation(self, scope: str, operation_name: str, task: str, identifier: str = None, filename: str = None,
                             comparison_method: str = "deepdiff", device_tags: list = None, device_models: list = None,
                             network_tags: list = None, product_types: list = None, org_ids: list = None) -> dict:
@@ -164,7 +172,7 @@ class ProjectLogic:
                     results = self.compare_organization_level(filename, scope, operation_name, comparison_method, org_ids or None)
                 elif scope == self.USE_CASE_KEYS["device_level"]:
                     results = self.compare_device_level(
-                        self, filename, scope, operation_name, comparison_method,
+                        filename, scope, operation_name, comparison_method,
                         network_tags=network_tags or None,
                         device_models=device_models or None,
                         device_tags=device_tags or None,
@@ -321,8 +329,8 @@ class ProjectLogic:
             list: A list of JSON filenames found in the directory, or an empty list if
                   the directory does not exist or is inaccessible.
         """
-        logger.debug(f"Attempting to list JSON files in: {self.FILES_DIRECTORY}/{scope_folder}/{operation_folder}")
-        destination_folder = os.path.join(self.FILES_DIRECTORY, scope_folder, operation_folder)
+        logger.debug(f"Attempting to list JSON files in: {self.files_directory}/{scope_folder}/{operation_folder}")
+        destination_folder = os.path.join(self.files_directory, scope_folder, operation_folder)
 
         if not os.path.exists(destination_folder):
             logger.warning(f"Path does not exist: {destination_folder}. No JSON files to list.")
@@ -364,16 +372,16 @@ class ProjectLogic:
             organizations = self._api_utils.list_organizations(True)
             for org in organizations:
                 # Get devices for each organization, paginating through all pages.
-                dev = self.dashboard.organizations.getOrganizationDevices(
+                dev = self._api_utils.get_dashboard().organizations.getOrganizationDevices(
                     org["id"], total_pages="all"
                 )
                 devices.extend(dev) # Add devices to the main list.
         else:
-            if not self.organization_id:
+            if not self._api_utils.get_organization_id():
                 raise ValueError("Organization ID is not set. Cannot fetch devices for a specific organization.")
-            logger.info(f"Fetching devices for organization ID: {self.organization_id}.")
-            devices = self.dashboard.organizations.getOrganizationDevices(
-                self.organization_id, total_pages="all"
+            logger.info(f"Fetching devices for organization ID: {self._api_utils.get_organization_id()}.")
+            devices = self._api_utils.get_dashboard().organizations.getOrganizationDevices(
+                self._api_utils.get_organization_id(), total_pages="all"
             )
 
         if simplified:
@@ -384,6 +392,53 @@ class ProjectLogic:
             return extracted_list
         else:
             return devices
+
+    def get_networks(self, simplified: bool = False, global_networks: bool = False) -> list:
+        """
+        Fetches networks. Can fetch all networks across all accessible organizations
+        or only networks under the currently selected organization.
+
+        Args:
+            simplified (bool): If True, returns a list of dictionaries with only
+                               'id', 'name', 'tags', and 'productTypes'.
+            global_networks (bool): If True, fetches networks from all organizations.
+                                    If False, fetches networks only from the currently
+                                    set `organization_id`.
+
+        Returns:
+            list: A list of network dictionaries.
+
+        Raises:
+            ValueError: If `global_networks` is False and no organization ID is set.
+        """
+        keys_to_extract = ["id", "name", "tags", "productTypes"]
+        networks = []
+
+        if global_networks:
+            logger.info("Fetching all networks across all accessible organizations.")
+            organizations = self._api_utils.list_organizations(True)
+            for org in organizations:
+                # Get networks for each organization, paginating through all pages.
+                net = self._api_utils.get_dashboard().organizations.getOrganizationNetworks(
+                    org["id"], total_pages="all"
+                )
+                networks.extend(net) # Add networks to the main list.
+        else:
+            if not self._api_utils.get_organization_id():
+                raise ValueError("Organization ID is not set. Cannot fetch networks for a specific organization.")
+            logger.info(f"Fetching networks for organization ID: {self._api_utils.get_organization_id()}.")
+            networks = self._api_utils.get_dashboard().organizations.getOrganizationNetworks(
+                self._api_utils.get_organization_id(), total_pages="all"
+            )
+
+        if simplified:
+            extracted_list = [
+                {key: item[key] for key in keys_to_extract if key in item}
+                for item in networks
+            ]
+            return extracted_list
+        else:
+            return networks
 
 
     # --- Data Storage Functions ---
@@ -445,7 +500,7 @@ class ProjectLogic:
     def _save_to_json(self, data: Any, scope_folder: str, operation_folder: str, filename: str):
         """
         Saves Python data (list or dictionary) to a JSON file within the structured
-        `self.FILES_DIRECTORY`.
+        `self.files_directory`.
 
         Args:
             data (any): The data to be saved (e.g., list of dictionaries, dictionary).
@@ -455,7 +510,7 @@ class ProjectLogic:
         """
         try:
             destination_folder = os.path.join(
-                self.FILES_DIRECTORY, scope_folder, operation_folder
+                self.files_directory, scope_folder, operation_folder
             )
             os.makedirs(destination_folder, exist_ok=True)
             destination = os.path.join(destination_folder, filename)
@@ -468,7 +523,7 @@ class ProjectLogic:
 
     def load_from_json(self, scope_folder: str, operation_folder: str, filename: str) -> Any:
         """
-        Loads data from a JSON file located within the structured `self.FILES_DIRECTORY`.
+        Loads data from a JSON file located within the structured `self.files_directory`.
 
         Args:
             scope_folder (str): The top-level folder name (e.g., "organization").
@@ -479,7 +534,7 @@ class ProjectLogic:
             any: The loaded data (e.g., list, dictionary).
         """
         try:
-            source_folder = os.path.join(self.FILES_DIRECTORY, scope_folder, operation_folder)
+            source_folder = os.path.join(self.files_directory, scope_folder, operation_folder)
             source = os.path.join(source_folder, filename)
             with open(source, "r") as file:
                 return json.load(file)
@@ -493,28 +548,6 @@ class ProjectLogic:
             logger.error(f"An unexpected error occurred while loading JSON file {source}: {e}", exc_info=True)
             raise
 
-
-    def collect_network_data_history(self, networks_list: List[Dict[str, Any]], t0_dt: datetime, t1_dt: datetime) -> Dict[str, Any]:
-        """
-        Collects network client history data for the given networks and time range.
-        This is a mock implementation. In a real scenario, this would call Meraki API.
-        """
-        logger.info(f"ProjectLogic: Collecting network data history (mock) for {len(networks_list)} networks from {t0_dt} to {t1_dt}.")
-        graph_data = {}
-        for network in networks_list:
-            network_id = network['id']
-            network_name = network['name']
-            # Generate some mock history data
-            history = []
-            current_time = t0_dt
-            while current_time < t1_dt:
-                history.append({
-                    "startTs": current_time.isoformat().replace('+00:00', 'Z'),
-                    "clientCount": (current_time.minute % 10) + (current_time.hour % 5) + 10 # Simple varying count
-                })
-                current_time += timedelta(minutes=30) # Simulate 30-min resolution
-            graph_data[network_id] = {"name": network_name, "history": history}
-        return graph_data
     def fetch_device_MX_interfaces(self,dev_id: str) -> dict:
         """
         Fetches the management interface settings for a specific Meraki MX device.
@@ -624,7 +657,7 @@ class ProjectLogic:
         for admin in admins:
             admin.pop("lastActive", None) # 'lastActive' changes frequently and is not a config setting.
         return admins
-    
+
     def _compare_level_general(self,
     json_file_name: str,
     scope: str,
@@ -681,7 +714,7 @@ class ProjectLogic:
 
             if entity_filter_func and not entity_filter_func(entity, scope, operation_name, filter_args or {}):
                 continue
-            
+
 
             logger.debug(f"Comparing entity: {entity_name} (ID: {entity_id})")
 
@@ -728,7 +761,7 @@ class ProjectLogic:
         Checks for network tags and product types.
         """
         # Filter by network tags
-        
+
         network_tags_filter = filter_args.get("network_tags")
         if network_tags_filter:
             if not any(tag in entity.get("tags", []) for tag in network_tags_filter):
@@ -880,17 +913,13 @@ class ProjectLogic:
         }
         if group_by_key_name:
             deepdiff_args["group_by"] = group_by_key_name
-        
+
         try:
             diff_output = DeepDiff(json1, json2, **deepdiff_args)
         except Exception as e:
             logger.error(f"Error during DeepDiff comparison: {e}")
             return {"res": [], "dif": {}}
 
-        #logger.debug(f"Raw DeepDiff output: {diff_output}")
-
-        # Temporary structure to group changes by item_id
-        # { item_id: { "status": "added"|"removed"|"changed", "changes": [], "full_item_ref": None, "full_item_curr": None } }
         grouped_item_changes = {}
         other_changes_list = []
 
@@ -1314,256 +1343,14 @@ class ProjectLogic:
             # If no field_path, return the entire item identified by item_id.
             return current_item
 
-    # --- Data Comparison Utility Functions ---
-    def flatten_json(self,data: any, parent_key: str = "", separator: str = ".") -> OrderedDict:
-        """
-        Recursively flattens a nested JSON object (dictionary or list) into a single-level
-        OrderedDict where keys represent the path to the original value.
-
-        Args:
-            data (any): The JSON data (dict or list) to flatten.
-            parent_key (str): Used internally for recursion to build the path.
-            separator (str): The character used to separate keys in the flattened path.
-
-        Returns:
-            OrderedDict: A flattened dictionary with path-like keys.
-        """
-        items = []
-        if isinstance(data, dict):
-            for key, value in data.items():
-                new_key = f"{parent_key}{separator}{key}" if parent_key else key
-                items.extend(self.flatten_json(value, new_key, separator).items())
-        elif isinstance(data, list):
-            for index, value in enumerate(data):
-                # Ensure index is treated as string for key consistency
-                new_key = f"{parent_key}{separator}{index}" if parent_key else str(index)
-                items.extend(self.flatten_json(value, new_key, separator).items())
-        else:
-            items.append((parent_key, data))
-        return OrderedDict(items)
-
-
-    def flat_compare_differences_enhanced(self,json1: dict | list, json2: dict | list) -> dict:
-        """
-        Compares two JSON objects (or lists) by first flattening them and then identifying
-        changes, additions, and removals based on the flattened keys.
-
-        Args:
-            json1 (dict | list): The reference JSON object or list.
-            json2 (dict | list): The current JSON object or list to compare against the reference.
-
-        Returns:
-            dict: A dictionary containing:
-                - "has_changes" (bool): True if any differences (changed, added, removed) were found.
-                - "detailed_changes" (list): A list of dictionaries detailing each change.
-                                            Each dict will have "key", "status", "reference_value", "current_value".
-        """
-        if not isinstance(json1, (dict, list)) or not isinstance(json2, (dict, list)):
-            logger.error("Input JSON structures must be dictionaries or lists for flat comparison.")
-            return {"has_changes": False, "detailed_changes": []}
-
-        flat_json1 = self.flatten_json(json1)
-        flat_json2 = self.flatten_json(json2)
-
-        # Get all unique keys from both flattened structures
-        all_keys = sorted(list(set(flat_json1.keys()).union(flat_json2.keys())))
-        
-
-        detailed_changes = []
-        has_changes = False
-
-        for key in all_keys:
-            ref_val = flat_json1.get(key)
-            curr_val = flat_json2.get(key)
-
-            # Compare values. Since flatten_json breaks down nested structures,
-            # ref_val and curr_val should be primitive types or None.
-            if ref_val == curr_val:
-                continue # No change for this key
-
-            has_changes = True
-            change_entry = {
-                "key": key,
-                "reference_value": ref_val,
-                "current_value": curr_val
-            }
-
-            if ref_val is None: # Key exists in json2 but not json1 (added)
-                change_entry["status"] = "added"
-            elif curr_val is None: # Key exists in json1 but not json2 (removed)
-                change_entry["status"] = "removed"
-            else: # Key exists in both, but values differ (changed)
-                change_entry["status"] = "changed"
-            
-            detailed_changes.append(change_entry)
-
-        return {"has_changes": has_changes, "detailed_changes": detailed_changes}
-
-
-    # 3. Modified _summarize_flat_results function
-    def _summarize_flat_results(self,
-        flat_comparison_output: dict,
-        was_list_transformed: bool = False,
-        top_level_item_ids: Optional[List[str]] = None,
-        processed_baseline_data: Optional[Dict[str, Any]] = None, # New parameter
-        processed_current_data: Optional[Dict[str, Any]] = None # New parameter
-    ) -> dict:
-        """
-        Processes the output from flat_compare_differences_enhanced to categorize and count changes,
-        preparing them for display in a format consistent with the DeepDiff summary structure.
-
-        Args:
-            flat_comparison_output (dict): The output from flat_compare_differences_enhanced,
-                                        e.g., {"has_changes": bool, "detailed_changes": list}.
-            was_list_transformed (bool): True if the original input data was a list of dicts
-                                        and was transformed into a dict keyed by group_by_key_name
-                                        before flattening. This affects how flattened keys are parsed.
-            top_level_item_ids (Optional[List[str]]): A list of the actual item IDs that were used
-                                                    as top-level keys when transforming a list
-                                                    of dicts. Used for robust item_id extraction.
-            processed_baseline_data (Optional[Dict[str, Any]]): The baseline data after potential
-                                                                transformation (keyed by group_by).
-            processed_current_data (Optional[Dict[str, Any]]): The current data after potential
-                                                                transformation (keyed by group_by).
-
-        Returns:
-            dict: A structured dictionary containing:
-                - 'relevant_changes': List of dictionaries for 'changed', 'added', 'removed' items.
-                - 'other_changes': List of dictionaries for 'other' changes (will be empty for flat compare).
-                - 'raw_deepdiff_output': Placeholder (empty dict).
-                - 'summary_counts': Dictionary with counts for 'changed', 'added', 'removed', 'other' changes.
-                - 'has_diffs': Boolean indicating if any differences were found.
-        """
-        detailed_changes = flat_comparison_output.get("detailed_changes", [])
-        has_diffs = flat_comparison_output.get("has_changes", False)
-
-        # Use a dictionary to group changes by item_id
-        grouped_relevant_changes = OrderedDict() # Use OrderedDict to maintain insertion order for item_ids
-
-        for change_item in detailed_changes:
-            full_key = change_item["key"]
-            status = change_item["status"]
-            ref_val = change_item["reference_value"]
-            curr_val = change_item["current_value"]
-
-            item_id_for_grouping = None
-            field_for_display = None
-
-            if was_list_transformed and top_level_item_ids:
-                # Find the correct item_id by checking for the longest prefix match
-                best_match_id = None
-
-                sorted_item_ids = sorted(top_level_item_ids, key=len, reverse=True)
-
-                for item_id_val in sorted_item_ids:
-                    if full_key.startswith(item_id_val) and \
-                    (len(full_key) == len(item_id_val) or full_key[len(item_id_val)] == '.'):
-                        best_match_id = item_id_val
-                        break
-
-                if best_match_id:
-                    item_id_for_grouping = best_match_id
-                    # The field is whatever comes after the item_id and the separator
-                    if len(full_key) > len(best_match_id) + 1 and full_key[len(best_match_id)] == '.':
-                        field_for_display = full_key[len(best_match_id) + 1:]
-                    elif len(full_key) == len(best_match_id):
-                        field_for_display = None # The item_id itself is the changed "field" (e.g., if it's a primitive value)
-                    else:
-                        logger.warning(f"Unexpected key format for transformed list: '{full_key}' with matched ID '{best_match_id}'. Falling back to full key as field.")
-                        field_for_display = full_key
-                else:
-                    logger.warning(f"Could not determine item_id for key '{full_key}' in transformed list comparison. Treating as global.")
-                    item_id_for_grouping = "Global Configuration"
-                    field_for_display = full_key
-
-            else:
-                item_id_for_grouping = "Global Configuration"
-                field_for_display = full_key
-
-            # Initialize the item_id entry if it doesn't exist
-            if item_id_for_grouping not in grouped_relevant_changes:
-                grouped_relevant_changes[item_id_for_grouping] = {
-                    "item_id": item_id_for_grouping,
-                    "changes": [],
-                    "status": status # Set initial status to the first encountered status for this item
-                }
-            else:
-                # Update overall item status based on precedence: removed > added > changed
-                current_item_overall_status = grouped_relevant_changes[item_id_for_grouping]["status"]
-                if status == "removed":
-                    grouped_relevant_changes[item_id_for_grouping]["status"] = "removed"
-                elif status == "added" and current_item_overall_status != "removed":
-                    grouped_relevant_changes[item_id_for_grouping]["status"] = "added"
-                elif status == "changed" and current_item_overall_status not in ["removed", "added"]:
-                    grouped_relevant_changes[item_id_for_grouping]["status"] = "changed"
-
-            # Add the specific field change to the item_id's changes list
-            # This part will be modified after the loop for 'added'/'removed' full objects
-            grouped_relevant_changes[item_id_for_grouping]["changes"].append({
-                "field": field_for_display,
-                "reference_value": ref_val,
-                "current_value": curr_val
-            })
-
-        # --- Post-processing for full 'added'/'removed' objects when list was transformed ---
-        if was_list_transformed:
-            for item_id, item_details in grouped_relevant_changes.items():
-                if item_details["status"] == "added":
-                    # Get the full added object from processed_current_data
-                    full_added_object = processed_current_data.get(item_id)
-                    if full_added_object is not None:
-                        item_details["changes"] = [{
-                            "field": None, # Indicates full item
-                            "reference_value": "N/A",
-                            "current_value": full_added_object
-                        }]
-                    else:
-                        logger.warning(f"Could not retrieve full added object for item_id: {item_id}")
-                elif item_details["status"] == "removed":
-                    # Get the full removed object from processed_baseline_data
-                    full_removed_object = processed_baseline_data.get(item_id)
-                    if full_removed_object is not None:
-                        item_details["changes"] = [{
-                            "field": None, # Indicates full item
-                            "reference_value": full_removed_object,
-                            "current_value": "N/A"
-                        }]
-                    else:
-                        logger.warning(f"Could not retrieve full removed object for item_id: {item_id}")
-
-        relevant_changes = list(grouped_relevant_changes.values())
-
-        # Re-calculate summary counts based on the grouped items
-        final_changed_count = 0
-        final_added_count = 0
-        final_removed_count = 0
-        for item in relevant_changes:
-            if item["status"] == "changed":
-                final_changed_count += 1
-            elif item["status"] == "added":
-                final_added_count += 1
-            elif item["status"] == "removed":
-                final_removed_count += 1
-
-        return {
-            "relevant_changes": relevant_changes,
-            "other_changes": [], # This list will be empty for flat comparison
-            "raw_deepdiff_output": {}, # This will be an empty dict as it's not DeepDiff output
-            "summary_counts": {
-                "changed": final_changed_count,
-                "added": final_added_count,
-                "removed": final_removed_count,
-                "other": 0, # This will be 0
-            },
-            "has_diffs": has_diffs # This should still reflect if *any* detailed change was found
-        }
 
     def _handle_deepdiff_comparison(self,
         baseline: Any,
         current_data: Any,
-        group_by_key: Optional[str] = None
+        group_by_key: Optional[str] = None,
+        **kwargs # Accept extra kwargs like entity_name for consistency, but don't use them here
     ) -> dict:
-    
+
         formatted = self.compare_differences(baseline, current_data, group_by_key_name=group_by_key)
         summary = self._summarize_diff_results(formatted.get("res", []), formatted.get("dif", {}))
         return summary
@@ -1588,48 +1375,3 @@ class ProjectLogic:
                 logger.warning(f"Duplicate group_by key '{item_id}' in {entity_name}, overwriting previous entry.")
             transformed[item_id] = item
         return transformed
-
-
-    def _handle_flat_comparison(self,
-        baseline: Any,
-        current_data: Any,
-        group_by_key: Optional[str],
-        entity_name: str
-    ) -> dict:
-        """
-        Perform flat comparison with optional list-to-dict transformation.
-        """
-        was_transformed = False
-        top_level_ids = set()
-
-        processed_baseline = baseline
-        processed_current = current_data
-
-        # Transform lists to dicts keyed by group_by_key if applicable
-        if group_by_key:
-            if isinstance(baseline, list) and all(isinstance(i, dict) for i in baseline):
-                processed_baseline = self._transform_list_to_dict_by_key(baseline, group_by_key, f"{entity_name} baseline")
-                top_level_ids.update(str(k) for k in processed_baseline.keys())
-                was_transformed = True
-
-            if isinstance(current_data, list) and all(isinstance(i, dict) for i in current_data):
-                processed_current = self._transform_list_to_dict_by_key(current_data, group_by_key, f"{entity_name} current")
-                top_level_ids.update(str(k) for k in processed_current.keys())
-                was_transformed = True
-
-        flat_output = self.flat_compare_differences_enhanced(processed_baseline, processed_current)
-
-        summary = self._summarize_flat_results(
-            flat_output,
-            was_list_transformed=was_transformed,
-            top_level_item_ids=list(top_level_ids),
-            processed_baseline_data=processed_baseline if was_transformed else None,
-            processed_current_data=processed_current if was_transformed else None,
-        )
-        return summary
-
-
-    # Registry of comparison methods for easy extensibility
-        
-    folders = {"network": "network", "organization": "organization", "device": "device"} # Added "device" for consistency.
-    FILES_DIRECTORY = "saved_configs" # Root directory for storing all saved configuration files.
